@@ -1,9 +1,7 @@
-const Anthropic = require("@anthropic-ai/sdk");
 const fs = require("fs");
 const path = require("path");
 
-const client = new Anthropic({ apiKey: process.env.CLAUDE_API_KEY });
-
+const GEMINI_KEY = process.env.GEMINI_API_KEY;
 const issueNumber = process.env.ISSUE_NUMBER;
 const issueTitle = process.env.ISSUE_TITLE || "";
 const issueBody = process.env.ISSUE_BODY || "";
@@ -12,7 +10,7 @@ const issueBody = process.env.ISSUE_BODY || "";
 function collectFiles(dir, base = dir) {
   const SKIP = new Set(["node_modules", "dist", ".git", ".angular", "public"]);
   const EXTENSIONS = new Set([".ts", ".html", ".scss", ".css", ".json", ".js"]);
-  const MAX_SIZE = 30000; // skip files larger than 30KB
+  const MAX_SIZE = 30000;
   let files = [];
 
   for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
@@ -33,17 +31,14 @@ function collectFiles(dir, base = dir) {
   return files;
 }
 
-// Build a string representation of the codebase
 function buildCodebaseContext(files) {
   return files
     .map((f) => `--- FILE: ${f.path} ---\n${f.content}\n--- END FILE ---`)
     .join("\n\n");
 }
 
-// Parse Claude's response into file changes
 function parseFileChanges(response) {
   const changes = [];
-  // Match ```filepath or ```<filepath> blocks
   const regex = /```([^\n`]+)\n([\s\S]*?)```/g;
   let match;
 
@@ -51,32 +46,50 @@ function parseFileChanges(response) {
     let filePath = match[1].trim();
     const content = match[2];
 
-    // Remove language hints if present (e.g., "typescript" before actual path)
-    // We detect paths by checking for / or file extensions
     if (!filePath.includes("/") && !filePath.includes(".")) {
-      continue; // skip generic code blocks like ```typescript
+      continue;
     }
 
-    // Clean up the path
     filePath = filePath.replace(/^(typescript|ts|html|scss|css|json|js)\s+/, "");
-
     changes.push({ path: filePath.trim(), content });
   }
 
   return changes;
 }
 
+async function callGemini(prompt) {
+  const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${GEMINI_KEY}`;
+
+  const res = await fetch(url, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      contents: [{ parts: [{ text: prompt }] }],
+      generationConfig: {
+        maxOutputTokens: 16000,
+        temperature: 0.2,
+      },
+    }),
+  });
+
+  if (!res.ok) {
+    const err = await res.text();
+    throw new Error(`Gemini API ${res.status}: ${err}`);
+  }
+
+  const data = await res.json();
+  return data.candidates[0].content.parts[0].text;
+}
+
 async function main() {
   console.log(`\n🔍 Issue #${issueNumber}: ${issueTitle}\n`);
 
-  // Collect project files
   const projectRoot = process.cwd();
   const files = collectFiles(projectRoot);
   console.log(`📁 Collected ${files.length} files for context\n`);
 
   const codebaseContext = buildCodebaseContext(files);
 
-  // Build the prompt
   const prompt = `You are an expert Angular developer. A tester has reported a bug/issue in the project. Your job is to fix it.
 
 ## Issue #${issueNumber}
@@ -109,26 +122,16 @@ IMPORTANT:
 - File paths must be relative to the project root.
 - Preserve existing code style and conventions.`;
 
-  console.log("🤖 Asking Claude to fix the issue...\n");
+  console.log("🤖 Asking Gemini to fix the issue...\n");
 
-  const message = await client.messages.create({
-    model: "claude-opus-4-6-20250414",
-    max_tokens: 16000,
-    messages: [{ role: "user", content: prompt }],
-  });
+  const responseText = await callGemini(prompt);
 
-  const responseText = message.content
-    .filter((block) => block.type === "text")
-    .map((block) => block.text)
-    .join("\n");
+  console.log("📝 Gemini response received. Parsing changes...\n");
 
-  console.log("📝 Claude response received. Parsing changes...\n");
-
-  // Parse and apply changes
   const changes = parseFileChanges(responseText);
 
   if (changes.length === 0) {
-    console.error("❌ No file changes detected in Claude's response.");
+    console.error("❌ No file changes detected in Gemini's response.");
     console.log("\nRaw response:\n", responseText);
     process.exit(1);
   }
@@ -137,7 +140,6 @@ IMPORTANT:
     const fullPath = path.join(projectRoot, change.path);
     const dir = path.dirname(fullPath);
 
-    // Create directory if it doesn't exist
     if (!fs.existsSync(dir)) {
       fs.mkdirSync(dir, { recursive: true });
     }

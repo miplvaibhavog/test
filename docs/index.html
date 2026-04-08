@@ -1,0 +1,598 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Nexus — AI Bug Fix Dashboard</title>
+  <link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@400;600;700&family=Rajdhani:wght@300;400;500;600&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet" />
+  <style>
+    *, *::before, *::after { margin: 0; padding: 0; box-sizing: border-box; }
+
+    :root {
+      --cyan: #00f0ff;
+      --magenta: #ff00e5;
+      --violet: #7b2fff;
+      --green: #0eff6b;
+      --yellow: #fbca04;
+      --red: #ff4757;
+      --dark: #05070a;
+      --card: rgba(8, 12, 21, 0.8);
+      --glass: rgba(0, 240, 255, 0.08);
+      --border: rgba(0, 240, 255, 0.12);
+      --text: #c8d6e5;
+      --text-bright: #eaf0f6;
+      --text-dim: rgba(200, 214, 229, 0.4);
+    }
+
+    html, body {
+      height: 100%;
+      font-family: 'Rajdhani', sans-serif;
+      background: var(--dark);
+      color: var(--text);
+      overflow-x: hidden;
+    }
+
+    /* background */
+    .bg {
+      position: fixed; inset: 0; z-index: 0;
+    }
+    .bg::before {
+      content: ''; position: absolute; inset: -50%;
+      background:
+        radial-gradient(ellipse 600px 600px at 15% 25%, rgba(0,240,255,0.06), transparent),
+        radial-gradient(ellipse 500px 500px at 85% 75%, rgba(255,0,229,0.05), transparent),
+        radial-gradient(ellipse 400px 400px at 50% 50%, rgba(123,47,255,0.04), transparent);
+      animation: bgShift 20s ease-in-out infinite alternate;
+    }
+    @keyframes bgShift {
+      0%   { transform: translate(0,0) scale(1); }
+      50%  { transform: translate(-30px,20px) scale(1.03); }
+      100% { transform: translate(20px,-15px) scale(1); }
+    }
+
+    .grid-overlay {
+      position: fixed; inset: 0; z-index: 0;
+      background-image:
+        linear-gradient(rgba(0,240,255,0.025) 1px, transparent 1px),
+        linear-gradient(90deg, rgba(0,240,255,0.025) 1px, transparent 1px);
+      background-size: 60px 60px;
+      mask-image: radial-gradient(ellipse 70% 70% at 50% 50%, black, transparent);
+    }
+
+    .scanline {
+      position: fixed; inset: 0; z-index: 10; pointer-events: none;
+      background: repeating-linear-gradient(0deg, transparent, transparent 2px, rgba(0,0,0,0.012) 2px, rgba(0,0,0,0.012) 4px);
+    }
+
+    /* header */
+    .header {
+      position: relative; z-index: 2;
+      display: flex; align-items: center; justify-content: space-between;
+      padding: 1.2rem 2rem;
+      border-bottom: 1px solid var(--border);
+      backdrop-filter: blur(20px);
+    }
+
+    .header-left { display: flex; align-items: center; gap: 12px; }
+    .header-left svg { width: 32px; height: 32px; filter: drop-shadow(0 0 8px rgba(0,240,255,0.4)); }
+
+    .header h1 {
+      font-family: 'Orbitron', sans-serif;
+      font-size: 1rem; font-weight: 700; letter-spacing: 4px; text-transform: uppercase;
+      background: linear-gradient(135deg, var(--cyan), var(--magenta));
+      -webkit-background-clip: text; -webkit-text-fill-color: transparent; background-clip: text;
+    }
+
+    .header-right { display: flex; align-items: center; gap: 12px; }
+
+    .token-input {
+      padding: 8px 14px; width: 280px;
+      background: rgba(0,240,255,0.03); border: 1px solid var(--border); border-radius: 8px;
+      color: var(--text-bright); font-family: 'JetBrains Mono', monospace; font-size: 0.75rem;
+      outline: none; transition: border-color 0.3s;
+    }
+    .token-input:focus { border-color: var(--cyan); }
+    .token-input::placeholder { color: var(--text-dim); }
+
+    .connect-btn {
+      padding: 8px 18px; border: none; border-radius: 8px; cursor: pointer;
+      background: linear-gradient(135deg, var(--cyan), var(--violet));
+      color: #fff; font-family: 'Orbitron', sans-serif; font-size: 0.7rem;
+      font-weight: 600; letter-spacing: 2px; text-transform: uppercase;
+      transition: transform 0.2s, box-shadow 0.3s;
+    }
+    .connect-btn:hover {
+      transform: translateY(-1px);
+      box-shadow: 0 4px 20px rgba(0,240,255,0.2);
+    }
+
+    .status-dot {
+      width: 8px; height: 8px; border-radius: 50%;
+      background: var(--red); transition: background 0.3s;
+    }
+    .status-dot.connected { background: var(--green); box-shadow: 0 0 8px rgba(14,255,107,0.5); }
+
+    /* main layout */
+    .main {
+      position: relative; z-index: 1;
+      display: grid; grid-template-columns: 1fr 1fr;
+      gap: 1.5rem; padding: 1.5rem 2rem;
+      height: calc(100vh - 65px);
+    }
+
+    @media (max-width: 900px) {
+      .main { grid-template-columns: 1fr; height: auto; }
+    }
+
+    /* panels */
+    .panel {
+      display: flex; flex-direction: column;
+      background: var(--card);
+      border: 1px solid var(--border); border-radius: 16px;
+      backdrop-filter: blur(20px); overflow: hidden;
+    }
+
+    .panel-header {
+      display: flex; align-items: center; gap: 10px;
+      padding: 1rem 1.4rem;
+      border-bottom: 1px solid var(--border);
+      font-family: 'Orbitron', sans-serif; font-size: 0.75rem;
+      font-weight: 600; letter-spacing: 3px; text-transform: uppercase;
+      color: var(--text-dim);
+    }
+
+    .panel-header .dot {
+      width: 6px; height: 6px; border-radius: 50%;
+    }
+
+    .panel-body {
+      flex: 1; padding: 1.4rem; overflow-y: auto;
+    }
+
+    .panel-body::-webkit-scrollbar { width: 4px; }
+    .panel-body::-webkit-scrollbar-track { background: transparent; }
+    .panel-body::-webkit-scrollbar-thumb { background: rgba(0,240,255,0.15); border-radius: 2px; }
+
+    /* left panel — form */
+    .form-group { margin-bottom: 1.2rem; }
+
+    .form-label {
+      display: block; margin-bottom: 6px;
+      font-size: 0.8rem; color: var(--text-dim);
+      letter-spacing: 1px; text-transform: uppercase;
+    }
+
+    .form-input, .form-textarea {
+      width: 100%; padding: 12px 16px;
+      background: rgba(0,240,255,0.03); border: 1px solid rgba(0,240,255,0.1);
+      border-radius: 10px; color: var(--text-bright);
+      font-family: 'Rajdhani', sans-serif; font-size: 0.95rem; font-weight: 500;
+      outline: none; transition: border-color 0.3s, box-shadow 0.3s;
+    }
+
+    .form-textarea { min-height: 150px; resize: vertical; line-height: 1.6; }
+
+    .form-input:focus, .form-textarea:focus {
+      border-color: var(--cyan);
+      box-shadow: 0 0 15px rgba(0,240,255,0.06);
+    }
+
+    .form-input::placeholder, .form-textarea::placeholder { color: var(--text-dim); }
+
+    .submit-btn {
+      width: 100%; padding: 14px; border: none; border-radius: 10px; cursor: pointer;
+      background: linear-gradient(135deg, var(--cyan), var(--violet), var(--magenta));
+      background-size: 200% 200%; animation: gradientMove 4s ease infinite;
+      color: #fff; font-family: 'Orbitron', sans-serif; font-size: 0.8rem;
+      font-weight: 700; letter-spacing: 3px; text-transform: uppercase;
+      transition: transform 0.2s, box-shadow 0.3s;
+    }
+
+    .submit-btn:hover {
+      transform: translateY(-2px);
+      box-shadow: 0 6px 25px rgba(0,240,255,0.2), 0 0 40px rgba(123,47,255,0.1);
+    }
+
+    .submit-btn:disabled {
+      opacity: 0.4; cursor: not-allowed; transform: none; box-shadow: none;
+    }
+
+    @keyframes gradientMove {
+      0%, 100% { background-position: 0% 50%; }
+      50%      { background-position: 100% 50%; }
+    }
+
+    .form-hint {
+      margin-top: 8px; font-size: 0.75rem; color: var(--text-dim);
+    }
+
+    /* right panel — workflow */
+    .empty-state {
+      display: flex; flex-direction: column; align-items: center; justify-content: center;
+      height: 100%; gap: 12px; color: var(--text-dim); text-align: center;
+    }
+
+    .empty-state svg { width: 48px; height: 48px; opacity: 0.3; }
+    .empty-state p { font-size: 0.85rem; max-width: 260px; }
+
+    /* workflow card */
+    .workflow-card {
+      border: 1px solid var(--border); border-radius: 12px;
+      margin-bottom: 12px; overflow: hidden;
+      animation: slideIn 0.4s cubic-bezier(0.22, 1, 0.36, 1);
+    }
+
+    @keyframes slideIn {
+      from { opacity: 0; transform: translateY(10px); }
+      to   { opacity: 1; transform: translateY(0); }
+    }
+
+    .wf-header {
+      display: flex; align-items: center; justify-content: space-between;
+      padding: 12px 16px;
+      background: rgba(0,240,255,0.02);
+      border-bottom: 1px solid rgba(0,240,255,0.06);
+      cursor: pointer; transition: background 0.2s;
+    }
+
+    .wf-header:hover { background: rgba(0,240,255,0.04); }
+
+    .wf-header-left { display: flex; align-items: center; gap: 10px; }
+
+    .wf-status {
+      width: 10px; height: 10px; border-radius: 50%; flex-shrink: 0;
+    }
+    .wf-status.queued     { background: var(--text-dim); }
+    .wf-status.in_progress { background: var(--yellow); animation: pulse 1.5s ease infinite; }
+    .wf-status.completed  { background: var(--green); box-shadow: 0 0 6px rgba(14,255,107,0.4); }
+    .wf-status.failure    { background: var(--red); box-shadow: 0 0 6px rgba(255,71,87,0.4); }
+
+    @keyframes pulse {
+      0%, 100% { opacity: 1; }
+      50%      { opacity: 0.4; }
+    }
+
+    .wf-title {
+      font-size: 0.88rem; font-weight: 600; color: var(--text-bright);
+    }
+
+    .wf-meta { font-size: 0.72rem; color: var(--text-dim); }
+
+    .wf-badge {
+      padding: 3px 10px; border-radius: 20px; font-size: 0.65rem;
+      font-family: 'Orbitron', sans-serif; font-weight: 600;
+      letter-spacing: 1px; text-transform: uppercase;
+    }
+    .wf-badge.queued      { background: rgba(200,214,229,0.1); color: var(--text-dim); }
+    .wf-badge.in_progress { background: rgba(251,202,4,0.1); color: var(--yellow); }
+    .wf-badge.completed   { background: rgba(14,255,107,0.1); color: var(--green); }
+    .wf-badge.failure     { background: rgba(255,71,87,0.1); color: var(--red); }
+
+    /* workflow steps */
+    .wf-steps {
+      padding: 12px 16px;
+    }
+
+    .wf-step {
+      display: flex; align-items: center; gap: 10px;
+      padding: 8px 0;
+      border-bottom: 1px solid rgba(0,240,255,0.04);
+      font-size: 0.82rem;
+    }
+
+    .wf-step:last-child { border-bottom: none; }
+
+    .step-icon {
+      width: 20px; height: 20px; display: flex; align-items: center; justify-content: center;
+      flex-shrink: 0;
+    }
+
+    .step-icon.pending   { color: var(--text-dim); }
+    .step-icon.running   { color: var(--yellow); animation: spin 1s linear infinite; }
+    .step-icon.success   { color: var(--green); }
+    .step-icon.failed    { color: var(--red); }
+
+    @keyframes spin { to { transform: rotate(360deg); } }
+
+    .step-name { flex: 1; color: var(--text); }
+    .step-duration { font-family: 'JetBrains Mono', monospace; font-size: 0.72rem; color: var(--text-dim); }
+
+    /* PR link */
+    .pr-link {
+      display: flex; align-items: center; gap: 8px;
+      margin-top: 8px; padding: 10px 14px;
+      background: rgba(14,255,107,0.04); border: 1px solid rgba(14,255,107,0.15);
+      border-radius: 8px; text-decoration: none; transition: background 0.2s;
+    }
+    .pr-link:hover { background: rgba(14,255,107,0.08); }
+    .pr-link svg { width: 16px; height: 16px; color: var(--green); }
+    .pr-link span { color: var(--green); font-size: 0.82rem; font-weight: 600; }
+
+    /* toast */
+    .toast {
+      position: fixed; bottom: 24px; right: 24px; z-index: 100;
+      padding: 12px 20px; border-radius: 10px;
+      font-size: 0.85rem; font-weight: 500;
+      animation: toastIn 0.4s ease, toastOut 0.4s ease 3s forwards;
+      pointer-events: none;
+    }
+    .toast.success { background: rgba(14,255,107,0.15); border: 1px solid rgba(14,255,107,0.3); color: var(--green); }
+    .toast.error   { background: rgba(255,71,87,0.15); border: 1px solid rgba(255,71,87,0.3); color: var(--red); }
+
+    @keyframes toastIn  { from { opacity: 0; transform: translateY(20px); } to { opacity: 1; transform: translateY(0); } }
+    @keyframes toastOut { to { opacity: 0; transform: translateY(20px); } }
+
+    /* auto-refresh indicator */
+    .refresh-bar {
+      display: flex; align-items: center; gap: 8px;
+      padding: 8px 16px;
+      border-top: 1px solid var(--border);
+      font-size: 0.7rem; color: var(--text-dim);
+    }
+
+    .refresh-spinner {
+      width: 12px; height: 12px;
+      border: 1.5px solid rgba(0,240,255,0.2);
+      border-top-color: var(--cyan);
+      border-radius: 50%;
+      animation: spin 1s linear infinite;
+    }
+  </style>
+</head>
+<body>
+  <div class="bg"></div>
+  <div class="grid-overlay"></div>
+  <div class="scanline"></div>
+
+  <!-- Header -->
+  <header class="header">
+    <div class="header-left">
+      <svg viewBox="0 0 52 52" fill="none">
+        <path d="M26 4L46 16v20L26 48 6 36V16L26 4z" stroke="url(#hg1)" stroke-width="1.5" fill="none"/>
+        <circle cx="26" cy="26" r="4" fill="#00f0ff"/>
+        <defs><linearGradient id="hg1" x1="6" y1="4" x2="46" y2="48"><stop stop-color="#00f0ff"/><stop offset="1" stop-color="#ff00e5"/></linearGradient></defs>
+      </svg>
+      <h1>Nexus AI Dashboard</h1>
+    </div>
+    <div class="header-right">
+      <div class="status-dot" id="statusDot"></div>
+      <input type="password" class="token-input" id="tokenInput" placeholder="GitHub Personal Access Token" />
+      <button class="connect-btn" id="connectBtn" onclick="connect()">Connect</button>
+    </div>
+  </header>
+
+  <!-- Main -->
+  <div class="main">
+    <!-- Left: Create Issue -->
+    <div class="panel">
+      <div class="panel-header">
+        <div class="dot" style="background:var(--cyan)"></div>
+        Report Bug
+      </div>
+      <div class="panel-body">
+        <div class="form-group">
+          <label class="form-label">Issue Title</label>
+          <input class="form-input" id="issueTitle" placeholder="e.g. Login spinner doesn't stop on error" />
+        </div>
+        <div class="form-group">
+          <label class="form-label">Description</label>
+          <textarea class="form-textarea" id="issueBody" placeholder="Describe the bug clearly...&#10;&#10;Include:&#10;- What happens vs what should happen&#10;- Which component/file is affected&#10;- Steps to reproduce"></textarea>
+        </div>
+        <button class="submit-btn" id="submitBtn" onclick="submitIssue()" disabled>
+          Submit & Auto-Fix
+        </button>
+        <p class="form-hint">Creates an issue with <strong>easy-bug</strong> label. Claude will auto-fix it.</p>
+      </div>
+    </div>
+
+    <!-- Right: Workflow Status -->
+    <div class="panel">
+      <div class="panel-header">
+        <div class="dot" style="background:var(--magenta)"></div>
+        Workflow Execution
+      </div>
+      <div class="panel-body" id="workflowPanel">
+        <div class="empty-state" id="emptyState">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+            <circle cx="12" cy="12" r="10"/><path d="M12 6v6l4 2"/>
+          </svg>
+          <p>No workflows yet. Submit a bug report and watch Claude fix it in real-time.</p>
+        </div>
+      </div>
+      <div class="refresh-bar" id="refreshBar" style="display:none">
+        <div class="refresh-spinner"></div>
+        <span>Auto-refreshing every 5s...</span>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    const OWNER = 'miplvaibhavog';
+    const REPO = 'test';
+    let TOKEN = '';
+    let pollingInterval = null;
+    let trackedRuns = new Map();
+
+    function showToast(msg, type = 'success') {
+      const t = document.createElement('div');
+      t.className = `toast ${type}`;
+      t.textContent = msg;
+      document.body.appendChild(t);
+      setTimeout(() => t.remove(), 3600);
+    }
+
+    async function ghFetch(endpoint, options = {}) {
+      const res = await fetch(`https://api.github.com${endpoint}`, {
+        headers: {
+          Authorization: `Bearer ${TOKEN}`,
+          Accept: 'application/vnd.github+json',
+          ...options.headers
+        },
+        ...options
+      });
+      if (!res.ok) throw new Error(`GitHub API ${res.status}: ${res.statusText}`);
+      return res.json();
+    }
+
+    function connect() {
+      TOKEN = document.getElementById('tokenInput').value.trim();
+      if (!TOKEN) return showToast('Enter a GitHub token', 'error');
+
+      // Test the token
+      ghFetch(`/repos/${OWNER}/${REPO}`)
+        .then(() => {
+          document.getElementById('statusDot').classList.add('connected');
+          document.getElementById('submitBtn').disabled = false;
+          showToast('Connected to GitHub');
+          loadWorkflows();
+          startPolling();
+        })
+        .catch(() => showToast('Invalid token or no repo access', 'error'));
+    }
+
+    async function submitIssue() {
+      const title = document.getElementById('issueTitle').value.trim();
+      const body = document.getElementById('issueBody').value.trim();
+      if (!title) return showToast('Enter an issue title', 'error');
+
+      document.getElementById('submitBtn').disabled = true;
+
+      try {
+        const issue = await ghFetch(`/repos/${OWNER}/${REPO}/issues`, {
+          method: 'POST',
+          body: JSON.stringify({ title, body, labels: ['easy-bug'] })
+        });
+
+        showToast(`Issue #${issue.number} created`);
+        document.getElementById('issueTitle').value = '';
+        document.getElementById('issueBody').value = '';
+
+        // Start watching for the workflow
+        setTimeout(() => loadWorkflows(), 3000);
+      } catch (e) {
+        showToast('Failed to create issue: ' + e.message, 'error');
+      } finally {
+        document.getElementById('submitBtn').disabled = false;
+      }
+    }
+
+    async function loadWorkflows() {
+      try {
+        const data = await ghFetch(`/repos/${OWNER}/${REPO}/actions/runs?per_page=10`);
+        const runs = data.workflow_runs || [];
+
+        if (runs.length === 0) return;
+
+        document.getElementById('emptyState')?.remove();
+        const panel = document.getElementById('workflowPanel');
+
+        for (const run of runs) {
+          await renderRun(run, panel);
+        }
+      } catch (e) {
+        console.error('Failed to load workflows:', e);
+      }
+    }
+
+    async function renderRun(run, panel) {
+      const id = run.id;
+      let status = run.status === 'completed' ? run.conclusion : run.status;
+      if (status === 'success') status = 'completed';
+
+      let card = document.getElementById(`wf-${id}`);
+      const isNew = !card;
+
+      if (isNew) {
+        card = document.createElement('div');
+        card.className = 'workflow-card';
+        card.id = `wf-${id}`;
+        panel.prepend(card);
+      }
+
+      const issueMatch = run.display_title?.match(/#(\d+)/) || run.head_branch?.match(/issue-(\d+)/);
+      const issueNum = issueMatch ? issueMatch[1] : '?';
+      const duration = run.updated_at && run.created_at
+        ? Math.round((new Date(run.updated_at) - new Date(run.created_at)) / 1000)
+        : 0;
+
+      // Get jobs
+      let jobsHtml = '';
+      try {
+        const jobsData = await ghFetch(`/repos/${OWNER}/${REPO}/actions/runs/${id}/jobs`);
+        const jobs = jobsData.jobs || [];
+
+        for (const job of jobs) {
+          for (const step of (job.steps || [])) {
+            let sStatus = 'pending';
+            let icon = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/></svg>';
+
+            if (step.status === 'in_progress') {
+              sStatus = 'running';
+              icon = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2v4m0 12v4m10-10h-4M6 12H2m15.07-5.07l-2.83 2.83M9.76 14.24l-2.83 2.83m11.14 0l-2.83-2.83M9.76 9.76L6.93 6.93"/></svg>';
+            } else if (step.conclusion === 'success') {
+              sStatus = 'success';
+              icon = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M5 12l5 5L20 7"/></svg>';
+            } else if (step.conclusion === 'failure') {
+              sStatus = 'failed';
+              icon = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 6L6 18M6 6l12 12"/></svg>';
+            }
+
+            const sDur = step.completed_at && step.started_at
+              ? Math.round((new Date(step.completed_at) - new Date(step.started_at)) / 1000) + 's'
+              : '';
+
+            jobsHtml += `
+              <div class="wf-step">
+                <div class="step-icon ${sStatus}">${icon}</div>
+                <span class="step-name">${step.name}</span>
+                <span class="step-duration">${sDur}</span>
+              </div>`;
+          }
+        }
+      } catch (e) { /* ignore */ }
+
+      // Check for PR
+      let prHtml = '';
+      if (status === 'completed') {
+        try {
+          const prs = await ghFetch(`/repos/${OWNER}/${REPO}/pulls?state=open&head=${OWNER}:fix/issue-${issueNum}`);
+          if (prs.length > 0) {
+            prHtml = `
+              <a class="pr-link" href="${prs[0].html_url}" target="_blank">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="18" cy="18" r="3"/><circle cx="6" cy="6" r="3"/><path d="M6 9v6a3 3 0 003 3h3"/></svg>
+                <span>PR #${prs[0].number} — ${prs[0].title}</span>
+              </a>`;
+          }
+        } catch (e) { /* ignore */ }
+      }
+
+      card.innerHTML = `
+        <div class="wf-header" onclick="this.nextElementSibling.style.display = this.nextElementSibling.style.display === 'none' ? 'block' : 'none'">
+          <div class="wf-header-left">
+            <div class="wf-status ${status}"></div>
+            <div>
+              <div class="wf-title">Issue #${issueNum} — ${run.display_title || run.name}</div>
+              <div class="wf-meta">${new Date(run.created_at).toLocaleString()} &middot; ${duration}s</div>
+            </div>
+          </div>
+          <span class="wf-badge ${status}">${status.replace('_', ' ')}</span>
+        </div>
+        <div class="wf-steps">
+          ${jobsHtml}
+          ${prHtml}
+        </div>`;
+    }
+
+    function startPolling() {
+      document.getElementById('refreshBar').style.display = 'flex';
+      if (pollingInterval) clearInterval(pollingInterval);
+      pollingInterval = setInterval(loadWorkflows, 5000);
+    }
+
+    // Allow Enter in token field
+    document.getElementById('tokenInput').addEventListener('keydown', (e) => {
+      if (e.key === 'Enter') connect();
+    });
+  </script>
+</body>
+</html>

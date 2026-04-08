@@ -7,13 +7,14 @@ const issueTitle = process.env.ISSUE_TITLE || "";
 const issueBody = process.env.ISSUE_BODY || "";
 
 function collectFiles(dir, base = dir) {
-  const SKIP = new Set(["node_modules", "dist", ".git", ".angular", "public"]);
-  const EXTENSIONS = new Set([".ts", ".html", ".scss", ".css", ".json", ".js"]);
-  const MAX_SIZE = 30000;
+  const SKIP = new Set(["node_modules", "dist", ".git", ".angular", "public", "docs", ".github", "scripts", ".vscode", ".claude"]);
+  const EXTENSIONS = new Set([".ts", ".html", ".scss"]);
+  const SKIP_FILES = new Set(["package-lock.json", "tsconfig.json", "tsconfig.app.json", "tsconfig.spec.json", "angular.json", ".editorconfig", ".gitignore", "README.md"]);
+  const MAX_SIZE = 15000;
   let files = [];
 
   for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
-    if (SKIP.has(entry.name)) continue;
+    if (SKIP.has(entry.name) || SKIP_FILES.has(entry.name)) continue;
 
     const fullPath = path.join(dir, entry.name);
     if (entry.isDirectory()) {
@@ -64,7 +65,7 @@ async function callGroq(prompt) {
       Authorization: `Bearer ${GROQ_KEY}`,
     },
     body: JSON.stringify({
-      model: "llama-3.3-70b-versatile",
+      model: "llama-3.1-8b-instant",
       messages: [
         {
           role: "system",
@@ -127,7 +128,7 @@ IMPORTANT:
 - File paths must be relative to the project root.
 - Preserve existing code style and conventions.`;
 
-  console.log("🤖 Asking Groq (Llama 3.3 70B) to fix the issue...\n");
+  console.log("🤖 Asking Groq (Llama 3.1 8B) to fix the issue...\n");
 
   const responseText = await callGroq(prompt);
 

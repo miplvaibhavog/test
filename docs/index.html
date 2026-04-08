@@ -409,7 +409,7 @@
   <script>
     const OWNER = 'miplvaibhavog';
     const REPO = 'test';
-    let TOKEN = '';
+    let TOKEN = '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';
     let pollingInterval = null;
     let trackedRuns = new Map();
 
@@ -479,7 +479,7 @@
     async function loadWorkflows() {
       try {
         const data = await ghFetch(`/repos/${OWNER}/${REPO}/actions/runs?per_page=10`);
-        const runs = data.workflow_runs || [];
+        const runs = (data.workflow_runs || []).filter(r => r.name === 'Auto Fix Issues with Claude');
 
         if (runs.length === 0) return;
 
@@ -592,6 +592,14 @@
     // Allow Enter in token field
     document.getElementById('tokenInput').addEventListener('keydown', (e) => {
       if (e.key === 'Enter') connect();
+    });
+
+    // Auto-connect on page load
+    window.addEventListener('DOMContentLoaded', () => {
+      if (TOKEN) {
+        document.getElementById('tokenInput').value = TOKEN;
+        connect();
+      }
     });
   </script>
 </body>

@@ -409,7 +409,7 @@
   <script>
     const OWNER = 'miplvaibhavog';
     const REPO = 'test';
-    let TOKEN = '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';
+    let TOKEN = localStorage.getItem('gh_token') || '';
     let pollingInterval = null;
     let trackedRuns = new Map();
 
@@ -441,13 +441,17 @@
       // Test the token
       ghFetch(`/repos/${OWNER}/${REPO}`)
         .then(() => {
+          localStorage.setItem('gh_token', TOKEN);
           document.getElementById('statusDot').classList.add('connected');
           document.getElementById('submitBtn').disabled = false;
           showToast('Connected to GitHub');
           loadWorkflows();
           startPolling();
         })
-        .catch(() => showToast('Invalid token or no repo access', 'error'));
+        .catch(() => {
+          localStorage.removeItem('gh_token');
+          showToast('Invalid token or no repo access', 'error');
+        });
     }
 
     async function submitIssue() {

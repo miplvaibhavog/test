@@ -1,0 +1,30 @@
+@import url('https://fonts.googleapis.com/css2?family=Orbitron:wght@400;600;700;900&family=Rajdhani:wght@300;400;500;600&display=swap');
+
+*,
+*::before,
+*::after {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+}
+
+:root {
+  --cyan: #00f0ff;
+  --cyan-dim: #00f0ff44;
+  --magenta: #ff00e5;
+  --magenta-dim: #ff00e544;
+  --violet: #7b2fff;
+  --dark: #05070a;
+  --card-bg: rgba(8, 12, 21, 0.75);
+  --glass-border: rgba(0, 240, 255, 0.12);
+  --text: #c8d6e5;
+  --text-bright: #eaf0f6;
+}
+
+html, body {
+  height: 100%;
+  overflow: hidden;
+  font-family: 'Rajdhani', sans-serif;
+  background: var(--dark);
+  color: var(--text);
+}

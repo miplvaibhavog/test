@@ -1,12 +1,11 @@
 const fs = require("fs");
 const path = require("path");
 
-const GEMINI_KEY = process.env.GEMINI_API_KEY;
+const GROQ_KEY = process.env.GROQ_API_KEY;
 const issueNumber = process.env.ISSUE_NUMBER;
 const issueTitle = process.env.ISSUE_TITLE || "";
 const issueBody = process.env.ISSUE_BODY || "";
 
-// Recursively collect project files for context (skip node_modules, dist, .git)
 function collectFiles(dir, base = dir) {
   const SKIP = new Set(["node_modules", "dist", ".git", ".angular", "public"]);
   const EXTENSIONS = new Set([".ts", ".html", ".scss", ".css", ".json", ".js"]);
@@ -57,28 +56,34 @@ function parseFileChanges(response) {
   return changes;
 }
 
-async function callGemini(prompt) {
-  const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${GEMINI_KEY}`;
-
-  const res = await fetch(url, {
+async function callGroq(prompt) {
+  const res = await fetch("https://api.groq.com/openai/v1/chat/completions", {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${GROQ_KEY}`,
+    },
     body: JSON.stringify({
-      contents: [{ parts: [{ text: prompt }] }],
-      generationConfig: {
-        maxOutputTokens: 16000,
-        temperature: 0.2,
-      },
+      model: "llama-3.3-70b-versatile",
+      messages: [
+        {
+          role: "system",
+          content: "You are an expert Angular developer. Return ONLY code blocks with file paths. No explanations.",
+        },
+        { role: "user", content: prompt },
+      ],
+      max_tokens: 16000,
+      temperature: 0.2,
     }),
   });
 
   if (!res.ok) {
     const err = await res.text();
-    throw new Error(`Gemini API ${res.status}: ${err}`);
+    throw new Error(`Groq API ${res.status}: ${err}`);
   }
 
   const data = await res.json();
-  return data.candidates[0].content.parts[0].text;
+  return data.choices[0].message.content;
 }
 
 async function main() {
@@ -90,7 +95,7 @@ async function main() {
 
   const codebaseContext = buildCodebaseContext(files);
 
-  const prompt = `You are an expert Angular developer. A tester has reported a bug/issue in the project. Your job is to fix it.
+  const prompt = `A tester has reported a bug/issue in the project. Your job is to fix it.
 
 ## Issue #${issueNumber}
 **Title:** ${issueTitle}
@@ -122,16 +127,16 @@ IMPORTANT:
 - File paths must be relative to the project root.
 - Preserve existing code style and conventions.`;
 
-  console.log("🤖 Asking Gemini to fix the issue...\n");
+  console.log("🤖 Asking Groq (Llama 3.3 70B) to fix the issue...\n");
 
-  const responseText = await callGemini(prompt);
+  const responseText = await callGroq(prompt);
 
-  console.log("📝 Gemini response received. Parsing changes...\n");
+  console.log("📝 Response received. Parsing changes...\n");
 
   const changes = parseFileChanges(responseText);
 
   if (changes.length === 0) {
-    console.error("❌ No file changes detected in Gemini's response.");
+    console.error("❌ No file changes detected in response.");
     console.log("\nRaw response:\n", responseText);
     process.exit(1);
   }
